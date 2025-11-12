@@ -7,7 +7,11 @@ Assistant for the FGC discord - A Discord bot built with Sapphire Framework and 
 - `/fight` slash command to create organized fight threads
 - Support for up to 5 participants
 - Room code tracking
-- Auto-archiving threads after 1 hour of inactivity
+- Rich embeds
+- Auto-archiving threads after 24 hours of inactivity
+- Channel fallback system (uses current channel if configured channel unavailable)
+- Hot-reload development mode
+- Modular, well-organized TypeScript codebase
 
 ## Setup
 
@@ -35,28 +39,24 @@ FIGHT_CHANNEL_ID=your_channel_id_here
 
 ## Development
 
-Build the TypeScript code:
-```bash
-yarn build
-# or
-npm run build
-```
-
-Run the bot:
-```bash
-yarn start
-# or
-npm start
-```
-
-Build and run in one command:
+**Development mode (with hot-reload):**
 ```bash
 yarn dev
 # or
 npm run dev
 ```
+Changes to `.ts` files automatically restart the bot.
 
-Watch mode (auto-rebuild on changes):
+**Production build:**
+```bash
+yarn build
+yarn start
+# or
+npm run build
+npm start
+```
+
+**Watch mode (TypeScript only):**
 ```bash
 yarn watch
 # or
@@ -67,10 +67,14 @@ npm run watch
 
 Once the bot is running and invited to your server:
 
-1. Use `/fight` command
+1. Type `/fight` in any channel
 2. Enter a room code (required)
-3. Select at least 1 participant (up to 5)
-4. The bot will create a thread in the configured channel with all details
+3. Select at least 1 participant (required)
+4. Optionally select up to 4 more participants
+5. The bot will create a thread with:
+   - Rich embed showing room code and participants
+   - Automatic mentions for all participants
+   - Thread auto-archives after 24 hours of inactivity
 
 ## Creating a Discord Bot
 
@@ -94,11 +98,27 @@ Once the bot is running and invited to your server:
 lfg-bot/
 ├── src/
 │   ├── commands/
-│   │   └── fight.ts       # Fight slash command
-│   └── index.ts           # Bot entry point
-├── .env.example           # Environment variables template
+│   │   └── fight.ts          # Fight slash command
+│   ├── lib/
+│   │   ├── channels.ts       # Channel validation utilities
+│   │   ├── embeds.ts         # Embed creation utilities
+│   │   └── types.ts          # TypeScript type definitions
+│   └── index.ts              # Bot entry point
+├── .env.example              # Environment variables template
 ├── .gitignore
 ├── package.json
-├── tsconfig.json          # TypeScript configuration
+├── tsconfig.json             # TypeScript configuration
 └── README.md
 ```
+
+## Architecture
+
+The bot follows a modular architecture:
+
+- **Commands** (`src/commands/`): Slash command definitions
+- **Library** (`src/lib/`): Reusable utilities and helpers
+  - `channels.ts`: Channel validation and resolution logic
+  - `embeds.ts`: Discord embed creation
+  - `types.ts`: Shared TypeScript interfaces
+- **Hot Reload**: Uses `tsx` for instant TypeScript execution in development
+- **Type Safety**: Full TypeScript coverage with strict mode enabled
