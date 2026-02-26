@@ -27,4 +27,6 @@ export const ThreadConfig = {
 export const EmbedColors = {
   /** Red color for fighting games */
   FIGHT_ROOM: 0xFF6B6B,
+  /** Blue color for roles panel */
+  ROLES_PANEL: 0x5865F2,
 } as const;
