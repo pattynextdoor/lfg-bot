@@ -9,21 +9,34 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Fetches ALL messages from a user in a channel by paginating
- * through the full history. Returns messages split into "recent"
- * (eligible for bulk delete) and "old" (must be deleted individually).
+ * Fetches and deletes a user's messages in a channel incrementally.
+ *
+ * Instead of scanning the entire history first, this processes one
+ * fetch-chunk at a time: fetch 100 messages → filter for the target
+ * user → delete those immediately → move to the next chunk.
+ *
+ * This means messages start disappearing right away and the caller
+ * gets progress callbacks after every chunk.
+ *
+ * @param channel     The text channel to purge
+ * @param userId      The target user whose messages will be deleted
+ * @param isAborted   Optional callback; return true to stop mid-purge
+ * @param onProgress  Called after each chunk with the running delete count
+ * @returns           Total number of messages deleted
  */
-export async function fetchAllUserMessages(
+export async function purgeChannelMessages(
   channel: TextChannel,
-  userId: string
-): Promise<{ recent: Message[]; old: Message[] }> {
-  const recent: Message[] = [];
-  const old: Message[] = [];
+  userId: string,
+  isAborted?: () => boolean,
+  onProgress?: (deleted: number) => void
+): Promise<number> {
   const cutoff = Date.now() - PurgeConfig.BULK_DELETE_CUTOFF_MS;
-
+  let totalDeleted = 0;
   let lastMessageId: string | undefined;
 
   while (true) {
+    if (isAborted?.()) break;
+
     const options: { limit: number; before?: string } = {
       limit: PurgeConfig.FETCH_LIMIT,
     };
@@ -36,6 +49,10 @@ export async function fetchAllUserMessages(
 
     if (fetched.size === 0) break;
 
+    // Split this chunk's messages into recent (bulk-deletable) and old
+    const recent: Message[] = [];
+    const old: Message[] = [];
+
     for (const message of fetched.values()) {
       if (message.author.id === userId) {
         if (message.createdTimestamp >= cutoff) {
@@ -46,57 +63,35 @@ export async function fetchAllUserMessages(
       }
     }
 
+    // Bulk-delete recent messages immediately
+    if (recent.length > 0) {
+      const result = await channel.bulkDelete(recent, true);
+      totalDeleted += result.size;
+    }
+
+    // Delete old messages one-by-one (rate-limited)
+    for (const message of old) {
+      if (isAborted?.()) break;
+      try {
+        await message.delete();
+        totalDeleted++;
+      } catch (error: unknown) {
+        // 10008 = Unknown Message (already deleted)
+        const discordError = error as { code?: number };
+        if (discordError.code !== 10008) {
+          throw error;
+        }
+      }
+      await sleep(PurgeConfig.DELETE_DELAY_MS);
+    }
+
+    onProgress?.(totalDeleted);
+
     lastMessageId = fetched.lastKey();
 
     // If we got fewer than the limit, we've reached the end
     if (fetched.size < PurgeConfig.FETCH_LIMIT) break;
   }
 
-  return { recent, old };
-}
-
-/**
- * Bulk-deletes messages in chunks of 100. Only works for messages
- * under 14 days old (Discord API limitation). Returns total deleted.
- */
-export async function bulkDeleteMessages(
-  channel: TextChannel,
-  messages: Message[]
-): Promise<number> {
-  let deleted = 0;
-
-  for (let i = 0; i < messages.length; i += PurgeConfig.FETCH_LIMIT) {
-    const chunk = messages.slice(i, i + PurgeConfig.FETCH_LIMIT);
-    const result = await channel.bulkDelete(chunk, true);
-    deleted += result.size;
-  }
-
-  return deleted;
-}
-
-/**
- * Deletes messages one-by-one with a delay between each call.
- * Used for messages older than 14 days that can't be bulk-deleted.
- * Gracefully ignores "Unknown Message" errors (already deleted).
- */
-export async function deleteOldMessages(
-  messages: Message[]
-): Promise<number> {
-  let deleted = 0;
-
-  for (const message of messages) {
-    try {
-      await message.delete();
-      deleted++;
-    } catch (error: unknown) {
-      // 10008 = Unknown Message (already deleted)
-      const discordError = error as { code?: number };
-      if (discordError.code !== 10008) {
-        throw error;
-      }
-    }
-    await sleep(PurgeConfig.DELETE_DELAY_MS);
-  }
-
-  return deleted;
+  return totalDeleted;
 }

@@ -16,11 +16,7 @@ import {
   createPurgeCompleteEmbed,
   createPurgeAbortedEmbed,
 } from '../lib/embeds.js';
-import {
-  fetchAllUserMessages,
-  bulkDeleteMessages,
-  deleteOldMessages,
-} from '../lib/messages.js';
+import { purgeChannelMessages } from '../lib/messages.js';
 import type { PurgeProgress } from '../lib/types.js';
 
 export class PurgeCommand extends Command {
@@ -176,15 +172,25 @@ export class PurgeCommand extends Command {
         progress.currentChannelName = channel.name;
 
         try {
-          const { recent, old } = await fetchAllUserMessages(channel, target.id);
+          // Remember the count before this channel so we can show
+          // a live running total as chunks are deleted
+          const baseDeleted = progress.messagesDeleted;
 
-          if (recent.length > 0) {
-            progress.messagesDeleted += await bulkDeleteMessages(channel, recent);
-          }
+          const deleted = await purgeChannelMessages(
+            channel,
+            target.id,
+            () => aborted,
+            (runningTotal) => {
+              // runningTotal = cumulative deletes within this channel
+              progress.messagesDeleted = baseDeleted + runningTotal;
+              interaction.editReply({
+                embeds: [createPurgeProgressEmbed(target, { ...progress })],
+                components: aborted ? [] : [abortRow],
+              }).catch(() => {});
+            }
+          );
 
-          if (old.length > 0 && !aborted) {
-            progress.messagesDeleted += await deleteOldMessages(old);
-          }
+          progress.messagesDeleted = baseDeleted + deleted;
         } catch (error) {
           // Per-channel errors shouldn't abort the whole purge
           console.error(`Error purging #${channel.name}:`, error);
@@ -192,8 +198,7 @@ export class PurgeCommand extends Command {
 
         progress.channelsScanned++;
 
-        // Update progress embed — catch failures gracefully
-        // (interaction token expires after 15 min for very large purges)
+        // Update progress embed after finishing the channel
         try {
           await interaction.editReply({
             embeds: [createPurgeProgressEmbed(target, { ...progress })],
