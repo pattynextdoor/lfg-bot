@@ -8,6 +8,13 @@ export interface FightRoomOptions {
 
 export type ThreadableChannel = TextChannel | NewsChannel;
 
+export interface PurgeProgress {
+  totalChannels: number;
+  channelsScanned: number;
+  currentChannelName: string;
+  messagesDeleted: number;
+}
+
 export interface CreateThreadResult {
   success: boolean;
   thread?: ThreadChannel;

@@ -1,5 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
-import type { FightRoomOptions } from './types.js';
+import type { User } from 'discord.js';
+import type { FightRoomOptions, PurgeProgress } from './types.js';
 import { CustomEmoji, EmbedColors } from './constants.js';
 
 /**
@@ -37,4 +38,67 @@ export function createFightRoomEmbed(options: FightRoomOptions): EmbedBuilder {
  */
 export function getParticipantMentions(participants: FightRoomOptions['participants']): string {
   return participants.map(p => `<@${p.id}>`).join(' ');
+}
+
+/**
+ * Creates a confirmation embed before starting a purge
+ */
+export function createPurgeConfirmEmbed(target: User, channelCount: number): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(EmbedColors.PURGE_CONFIRM)
+    .setTitle('⚠️ Confirm Purge')
+    .setDescription(
+      `This will delete **all** messages from <@${target.id}> across **${channelCount}** text channel(s).\n\n` +
+      `**This action is irreversible.**`
+    )
+    .setFooter({ text: 'This confirmation expires in 60 seconds' })
+    .setTimestamp();
+}
+
+/**
+ * Creates a progress embed shown while a purge is running
+ */
+export function createPurgeProgressEmbed(target: User, progress: PurgeProgress): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(EmbedColors.PURGE_CONFIRM)
+    .setTitle('🔄 Purge In Progress')
+    .setDescription(`Deleting messages from <@${target.id}>...`)
+    .addFields(
+      {
+        name: 'Current Channel',
+        value: `#${progress.currentChannelName}`,
+        inline: true,
+      },
+      {
+        name: 'Channels Scanned',
+        value: `${progress.channelsScanned} / ${progress.totalChannels}`,
+        inline: true,
+      },
+      {
+        name: 'Messages Deleted',
+        value: `${progress.messagesDeleted}`,
+        inline: true,
+      }
+    )
+    .setTimestamp();
+}
+
+/**
+ * Creates a completion embed shown when a purge finishes
+ */
+export function createPurgeCompleteEmbed(
+  target: User,
+  totalDeleted: number,
+  channelsScanned: number
+): EmbedBuilder {
+  const description =
+    totalDeleted === 0
+      ? `No messages found from <@${target.id}>.`
+      : `Deleted **${totalDeleted}** message(s) from <@${target.id}> across **${channelsScanned}** channel(s).`;
+
+  return new EmbedBuilder()
+    .setColor(EmbedColors.PURGE_COMPLETE)
+    .setTitle('✅ Purge Complete')
+    .setDescription(description)
+    .setTimestamp();
 }
