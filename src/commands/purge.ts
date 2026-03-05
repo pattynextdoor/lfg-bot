@@ -42,7 +42,7 @@ export class PurgeCommand extends Command {
         .addChannelOption((option) =>
           option
             .setName('channel')
-            .setDescription('Specific channel to purge (defaults to all text channels)')
+            .setDescription('Channel to purge (defaults to current channel)')
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(false)
         )
@@ -62,17 +62,15 @@ export class PurgeCommand extends Command {
         });
       }
 
-      // Use specific channel if provided, otherwise all top-level text channels
+      // Use the specified channel, or fall back to the channel where the command was run
       const specificChannel = interaction.options.getChannel('channel') as TextChannel | null;
+      const currentChannel = interaction.channel;
 
-      let textChannels: TextChannel[];
-      if (specificChannel) {
-        textChannels = [specificChannel];
-      } else {
-        textChannels = [...guild.channels.cache
-          .filter((ch): ch is TextChannel => ch.type === ChannelType.GuildText)
-          .values()];
-      }
+      const textChannels: TextChannel[] = specificChannel
+        ? [specificChannel]
+        : currentChannel?.type === ChannelType.GuildText
+          ? [currentChannel]
+          : [];
 
       if (textChannels.length === 0) {
         return interaction.reply({
