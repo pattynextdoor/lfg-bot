@@ -84,6 +84,24 @@ export function createPurgeProgressEmbed(target: User, progress: PurgeProgress):
 }
 
 /**
+ * Creates an embed shown when a purge is aborted mid-run
+ */
+export function createPurgeAbortedEmbed(
+  target: User,
+  messagesDeleted: number,
+  channelsScanned: number
+): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(EmbedColors.PURGE_CONFIRM)
+    .setTitle('🛑 Purge Aborted')
+    .setDescription(
+      `Purge of <@${target.id}> was stopped.\n\n` +
+      `**${messagesDeleted}** message(s) deleted across **${channelsScanned}** channel(s) before abort.`
+    )
+    .setTimestamp();
+}
+
+/**
  * Creates a completion embed shown when a purge finishes
  */
 export function createPurgeCompleteEmbed(

@@ -14,6 +14,7 @@ import {
   createPurgeConfirmEmbed,
   createPurgeProgressEmbed,
   createPurgeCompleteEmbed,
+  createPurgeAbortedEmbed,
 } from '../lib/embeds.js';
 import {
   fetchAllUserMessages,
@@ -42,6 +43,13 @@ export class PurgeCommand extends Command {
             .setDescription('The user whose messages will be deleted')
             .setRequired(true)
         )
+        .addChannelOption((option) =>
+          option
+            .setName('channel')
+            .setDescription('Specific channel to purge (defaults to all text channels)')
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
+        )
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     );
   }
@@ -58,12 +66,19 @@ export class PurgeCommand extends Command {
         });
       }
 
-      // Gather top-level text channels only (no threads)
-      const textChannels = guild.channels.cache.filter(
-        (ch): ch is TextChannel => ch.type === ChannelType.GuildText
-      );
+      // Use specific channel if provided, otherwise all top-level text channels
+      const specificChannel = interaction.options.getChannel('channel') as TextChannel | null;
 
-      if (textChannels.size === 0) {
+      let textChannels: TextChannel[];
+      if (specificChannel) {
+        textChannels = [specificChannel];
+      } else {
+        textChannels = [...guild.channels.cache
+          .filter((ch): ch is TextChannel => ch.type === ChannelType.GuildText)
+          .values()];
+      }
+
+      if (textChannels.length === 0) {
         return interaction.reply({
           content: '❌ No text channels found in this server.',
           flags: ['Ephemeral'],
@@ -86,7 +101,7 @@ export class PurgeCommand extends Command {
         cancelButton
       );
 
-      const confirmEmbed = createPurgeConfirmEmbed(target, textChannels.size);
+      const confirmEmbed = createPurgeConfirmEmbed(target, textChannels.length);
 
       const reply = await interaction.reply({
         embeds: [confirmEmbed],
@@ -123,19 +138,41 @@ export class PurgeCommand extends Command {
 
       // Confirmed — start purging
       const progress: PurgeProgress = {
-        totalChannels: textChannels.size,
+        totalChannels: textChannels.length,
         channelsScanned: 0,
         currentChannelName: '',
         messagesDeleted: 0,
       };
 
+      const abortButton = new ButtonBuilder()
+        .setCustomId('purge-abort')
+        .setLabel('Abort')
+        .setStyle(ButtonStyle.Secondary);
+
+      const abortRow = new ActionRowBuilder<ButtonBuilder>().addComponents(abortButton);
+
       await buttonInteraction.update({
         content: null,
         embeds: [createPurgeProgressEmbed(target, { ...progress, currentChannelName: 'Starting...' })],
-        components: [],
+        components: [abortRow],
       });
 
-      for (const channel of textChannels.values()) {
+      // Listen for the abort button click throughout the purge
+      let aborted = false;
+      const collector = reply.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        filter: (i) => i.customId === 'purge-abort' && i.user.id === interaction.user.id,
+      });
+
+      collector.on('collect', async (i) => {
+        aborted = true;
+        await i.deferUpdate();
+        collector.stop();
+      });
+
+      for (const channel of textChannels) {
+        if (aborted) break;
+
         progress.currentChannelName = channel.name;
 
         try {
@@ -145,7 +182,7 @@ export class PurgeCommand extends Command {
             progress.messagesDeleted += await bulkDeleteMessages(channel, recent);
           }
 
-          if (old.length > 0) {
+          if (old.length > 0 && !aborted) {
             progress.messagesDeleted += await deleteOldMessages(old);
           }
         } catch (error) {
@@ -160,22 +197,24 @@ export class PurgeCommand extends Command {
         try {
           await interaction.editReply({
             embeds: [createPurgeProgressEmbed(target, { ...progress })],
+            components: aborted ? [] : [abortRow],
           });
         } catch {
           // Interaction token expired; continue purging silently
         }
       }
 
-      // Show completion embed
+      collector.stop();
+
+      // Show final embed
       try {
+        const finalEmbed = aborted
+          ? createPurgeAbortedEmbed(target, progress.messagesDeleted, progress.channelsScanned)
+          : createPurgeCompleteEmbed(target, progress.messagesDeleted, progress.channelsScanned);
+
         await interaction.editReply({
-          embeds: [
-            createPurgeCompleteEmbed(
-              target,
-              progress.messagesDeleted,
-              progress.channelsScanned
-            ),
-          ],
+          embeds: [finalEmbed],
+          components: [],
         });
       } catch {
         // Interaction token may have expired
